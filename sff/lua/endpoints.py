@@ -149,7 +149,7 @@ def get_hubcap(dest, app_id, depotcache = None, hubcap_key = None):
             stats_resp = httpx.get(
                 "https://hubcapmanifest.com/api/v1/user/stats",
                 headers=headers,
-                timeout=15,
+                timeout=60,
                 follow_redirects=True,
             )
         except httpx.ConnectError:

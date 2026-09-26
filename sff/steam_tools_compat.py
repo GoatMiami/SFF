@@ -74,7 +74,10 @@ def install_lua_to_steam(steam_path, app_id, lua_source_path):
         with _steam_stopped_for_stplugin_write(steam_path):
             dest_dir.mkdir(parents=True, exist_ok=True)
             dest_file = dest_dir / f"{app_id}.lua"
-            shutil.copy2(lua_source_path, dest_file)
+            temp_file = dest_dir / f"{app_id}.lua.tmp"
+            shutil.copy2(lua_source_path, temp_file)
+            import os
+            os.replace(temp_file, dest_file)
         logger.info("Installed LUA to Steam config: %s", dest_file)
         return True
     except OSError as e:

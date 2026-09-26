@@ -185,7 +185,10 @@ def _bridge_download_game_fastest(bridge, app_id):
             app_id=app_id,
         )
 
-    bridge._run_async(_do, on_done=_on_done)
+    def _on_error(err_msg):
+        bridge._emit_task_result("download_fastest", False, str(err_msg), app_id=app_id)
+
+    bridge._run_async(_do, on_done=_on_done, on_error=_on_error)
 
 
 def _bridge_download_game_with_source(bridge, app_id, source, request_update='0', lua_path='', manifest_folder='', branch='', file_type=''):
@@ -237,6 +240,11 @@ def _bridge_download_game_with_source(bridge, app_id, source, request_update='0'
             )
             return
         success = result is True
+        if success:
+            try:
+                bridge._installed_games_cache = None
+            except Exception:
+                pass
         bridge._emit_task_result(
             "download_fastest",
             success,
@@ -245,7 +253,10 @@ def _bridge_download_game_with_source(bridge, app_id, source, request_update='0'
             is_windows=sys.platform == "win32",
         )
 
-    bridge._run_async(_do, on_done=_on_done)
+    def _on_error(err_msg):
+        bridge._emit_task_result("download_fastest", False, str(err_msg), app_id=app_id)
+
+    bridge._run_async(_do, on_done=_on_done, on_error=_on_error)
 
 
 # ── Internal pipeline helpers ─────────────────────────────────────────
@@ -2274,13 +2285,6 @@ def _bridge_download_game_ddmod(bridge, app_id, source, lua_path, manifest_folde
                 # ensure_library_has_app(steam_path, dest, app_id).
                 logger.debug("ddmod %s: registering with Steam (windows)", app_id)
                 try:
-                    from sff.steam_tools_compat import install_lua_to_steam
-                    install_lua_to_steam(steam_path, app_id, lua_install_file)
-                    _bridge_apply_auto_update_default(bridge, app_id, _auto_update_was_registered)
-                except Exception as _ile:
-                    logger.warning("install_lua_to_steam failed (non-fatal): %s", _ile)
-
-                try:
                     from sff.lua.writer import ConfigVDFWriter
                     ConfigVDFWriter(steam_path).add_decryption_keys_to_config(parsed)
                 except Exception as _kwe:
@@ -2306,6 +2310,13 @@ def _bridge_download_game_ddmod(bridge, app_id, source, lua_path, manifest_folde
                     ensure_library_has_app(steam_path, dest, app_id)
                 except Exception as _le:
                     logger.warning("ensure_library_has_app failed (non-fatal): %s", _le)
+
+                try:
+                    from sff.steam_tools_compat import install_lua_to_steam
+                    install_lua_to_steam(steam_path, app_id, lua_install_file)
+                    _bridge_apply_auto_update_default(bridge, app_id, _auto_update_was_registered)
+                except Exception as _ile:
+                    logger.warning("install_lua_to_steam failed (non-fatal): %s", _ile)
 
             elif sys.platform == "linux" and dest_is_library:
                 # SLSSteam consumes ~/.config/SLSsteam/config.yaml.
@@ -2982,6 +2993,10 @@ def _bridge_download_game_ddmod(bridge, app_id, source, lua_path, manifest_folde
             QTimer.singleShot(1000, bridge._maybe_auto_contribute_provider)
         game_data = getattr(bridge, '_current_game_data', None)
         if isinstance(result, tuple) and result[0]:
+            try:
+                bridge._installed_games_cache = None
+            except Exception:
+                pass
             game_name = game_data.get("game_name", f"App {app_id}") if game_data else f"App {app_id}"
             _bridge_track_download(bridge, app_id, game_name, ok)
         bridge._emit_task_result("download_ddmod", ok, msg, app_id=app_id,
@@ -3066,6 +3081,11 @@ def _bridge_import_local_lua(bridge, app_id, lua_path, manifest_folder=''):
 
     def _on_done(result):
         ok, msg = result if isinstance(result, tuple) else (False, "Import failed")
+        if ok:
+            try:
+                bridge._installed_games_cache = None
+            except Exception:
+                pass
         bridge._emit_task_result("import_local_lua", ok, msg, app_id=app_id)
 
     bridge._run_async(_do, on_done=_on_done)

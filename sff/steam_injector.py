@@ -169,11 +169,161 @@ def _build_js_popup(library_app_ids: set) -> str:
         btn.onclick = function(e) {{ e.preventDefault(); triggerAction(); }};
 
         if (forController) {{
+            var SPReact = null, SPReactDOM = null, SPFocusable = null;
+            if (window.webpackChunksteamui) {{
+                window.webpackChunksteamui.push([[Math.random()], {{}}, function(r) {{
+                    for (var m in r.m) {{
+                        try {{
+                            var mod = r(m);
+                            if (mod && mod.createElement && mod.Component) SPReact = mod;
+                            if (mod && mod.createPortal) SPReactDOM = mod;
+                            if (mod && mod.Focusable && mod.Focusable.displayName === 'Focusable') SPFocusable = mod.Focusable;
+                        }} catch(e) {{}}
+                    }}
+                }}]);
+            }}
+
+            if (SPReact && SPReactDOM) {{
+                function captureNavFromElement(el) {{
+                    var fiber = null;
+                    for (var key in el) {{
+                        if (key.startsWith('__reactFiber$')) {{
+                            fiber = el[key];
+                            break;
+                        }}
+                    }}
+                    if (!fiber) return null;
+
+                    var node = null, ctx = null, curr = fiber;
+                    while (curr) {{
+                        if (curr.type && curr.type._context && curr.type._context.displayName === 'FocusNavigationContext') {{
+                            ctx = curr.type._context;
+                            node = curr.memoizedProps.value;
+                            break;
+                        }}
+                        curr = curr.return;
+                    }}
+                    return {{ ctx: ctx, node: node }};
+                }}
+
+                var carousel = document.getElementById('FeatureTarget_gamehighlight-gamepadcarousel');
+                if (carousel) {{
+                    var cap = captureNavFromElement(carousel);
+                    if (cap && cap.ctx && cap.node) {{
+                        var Provider = cap.ctx.Provider || cap.ctx;
+
+                        var host = document.createElement('div');
+                        host.id = 'steamidra-react-host-bp';
+                        host.style.cssText = 'display: inline-block; margin-top: 16px; margin-left: 10px; width: fit-content;';
+
+                        var dummy = document.getElementById('steamidra-wrapper-bp');
+                        if (!dummy) {{
+                            dummy = document.createElement('div');
+                            dummy.id = 'steamidra-wrapper-bp';
+                            dummy.style.display = 'none';
+                            document.body.appendChild(dummy);
+                        }}
+
+                        function SteamidraButton() {{
+                            var [isWorking, setIsWorking] = SPReact.useState(false);
+                            var [errorMsg, setErrorMsg] = SPReact.useState("");
+                            var isRemove = pageAppId && isInLibrary(pageAppId);
+                            
+                            SPReact.useEffect(function() {{
+                                window.STEAMIDRA_REACT_RESET = function() {{
+                                    setIsWorking(false);
+                                    setErrorMsg("");
+                                }};
+                                window.STEAMIDRA_REACT_ERROR = function(msg) {{
+                                    setIsWorking(false);
+                                    setErrorMsg(msg);
+                                    setTimeout(function() {{ setErrorMsg(""); }}, 4000);
+                                }};
+                                var obs = new MutationObserver(function() {{
+                                    setIsWorking(false);
+                                }});
+                                obs.observe(dummy, {{ childList: true, attributes: true, characterData: true, subtree: true }});
+                                return function() {{ obs.disconnect(); delete window.STEAMIDRA_REACT_RESET; delete window.STEAMIDRA_REACT_ERROR; }};
+                            }}, []);
+
+                            var text = isRemove ? 'Remove from Library' : 'Add to Library';
+                            if (isWorking) text = isRemove ? 'Removing...' : 'Adding...';
+                            if (errorMsg) text = 'Error: ' + errorMsg;
+
+                            var btnProps = {{
+                                className: 'Panel Focusable',
+                                role: 'button',
+                                tabIndex: 0,
+                                onActivate: function(e) {{
+                                    if (isWorking) return;
+                                    setIsWorking(true);
+                                    setErrorMsg("");
+                                    triggerAction();
+                                }},
+                                onClick: function(e) {{
+                                    if (isWorking) return;
+                                    setIsWorking(true);
+                                    setErrorMsg("");
+                                    triggerAction();
+                                }},
+                                style: {{
+                                    display: 'block',
+                                    textAlign: 'center',
+                                    background: errorMsg ? '#cc0000' : (isRemove ? remGrad : addGrad),
+                                    color: 'white',
+                                    fontWeight: 'bold',
+                                    fontFamily: 'Arial,sans-serif',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+                                    outline: 'none',
+                                    padding: '12px 24px',
+                                    fontSize: '16px',
+                                    borderRadius: '4px',
+                                    opacity: isWorking ? '0.8' : '1'
+                                }}
+                            }};
+                            
+                            var [focused, setFocused] = SPReact.useState(false);
+                            btnProps.onFocus = function() {{ setFocused(true); }};
+                            btnProps.onBlur = function() {{ setFocused(false); }};
+                            btnProps.onMouseEnter = function() {{ setFocused(true); }};
+                            btnProps.onMouseLeave = function() {{ setFocused(false); }};
+                            
+                            if (focused && !isWorking) {{
+                                var color = isRemove ? '#ff4d4d' : '#1a9fff';
+                                btnProps.style.boxShadow = '0 0 0 4px white,0 0 0 6px ' + color;
+                                btnProps.style.transform = 'scale(1.02)';
+                            }}
+
+                            var Comp = SPFocusable || 'div';
+                            var children = text;
+                            if (isWorking) {{
+                                children = SPReact.createElement(SPReact.Fragment, null,
+                                    SPReact.createElement('span', {{ className: 'steamidra-spinner' }}),
+                                    text
+                                );
+                            }}
+
+                            return SPReact.createElement(Provider, {{ value: cap.node }},
+                                SPReact.createElement(Comp, btnProps, children)
+                            );
+                        }}
+
+                        SPReactDOM.render(SPReact.createElement(SteamidraButton), host);
+                        
+                        host._steamidraCleanup = function() {{
+                            SPReactDOM.unmountComponentAtNode(host);
+                        }};
+
+                        return host;
+                    }}
+                }}
+            }}
+
+            // Fallback if React injection fails
             btn.setAttribute('tabindex', '0');
             btn.classList.add('Panel', 'Focusable');
-            // We do NOT add data-panel because Steam's FocusNavController will ignore raw DOM nodes anyway.
-
-            // Focus ring — for mouse hover / click
             function onFocus() {{
                 if (btn.disabled) return;
                 var color = (btn.innerText && btn.innerText.includes('Remove')) ? '#ff4d4d' : '#1a9fff';
@@ -187,76 +337,7 @@ def _build_js_popup(library_app_ids: set) -> str:
             }}
             btn.addEventListener('mouseenter', onFocus);
             btn.addEventListener('mouseleave', onBlur);
-
-            // MANUALLY HIJACK STEAM'S GAMEPAD NAVIGATION
-            // Since this is a raw DOM node and not a React <Focusable>, Steam's FocusNavController
-            // doesn't know it exists. We must manually catch Arrow/Gamepad directions in the capture
-            // phase, manually apply Steam's .gpfocus class for the white border, and stop propagation.
-            
-            function onWinKeydown(e) {{
-                // Steam maps controller D-pad to Arrow keys internally in CEF
-                var isDown = (e.key === 'ArrowDown' || e.keyCode === 40);
-                var isUp = (e.key === 'ArrowUp' || e.keyCode === 38);
-                var isLeft = (e.key === 'ArrowLeft' || e.keyCode === 37);
-                var isRight = (e.key === 'ArrowRight' || e.keyCode === 39);
-                var isAction = (e.key === 'Enter' || e.key === ' ' || e.key === 'GamepadA');
-                
-                var carousel = document.getElementById('FeatureTarget_gamehighlight-gamepadcarousel');
-                var hasGpFocus = btn.classList.contains('gpfocus');
-                var activeNode = document.querySelector('.gpfocus') || document.activeElement;
-
-                // 1. If our button currently has focus:
-                if (hasGpFocus) {{
-                    if (isAction) {{
-                        e.preventDefault(); e.stopPropagation();
-                        triggerAction();
-                    }} else if (isUp) {{
-                        e.preventDefault(); e.stopPropagation();
-                        btn.classList.remove('gpfocus');
-                        btn.blur();
-                        onBlur(); // clear custom visual styles
-                        if (carousel) {{
-                            var target = carousel.querySelector('.Focusable') || carousel;
-                            target.focus();
-                            target.classList.add('gpfocus');
-                        }}
-                    }} else if (isLeft || isRight) {{
-                        // Block horizontal movement so Steam doesn't desync its internal state
-                        e.preventDefault(); e.stopPropagation();
-                    }} else if (isDown) {{
-                        // Let Steam navigate down to the next row, but clean up our fake focus
-                        btn.classList.remove('gpfocus');
-                        btn.blur();
-                        onBlur();
-                    }} else {{
-                        // For Escape/Back or other navigation, just clean up our visual state
-                        btn.classList.remove('gpfocus');
-                        btn.blur();
-                        onBlur();
-                    }}
-                    return;
-                }}
-
-                // 2. If our button does NOT have focus, check if we should hijack DOWN
-                if (isDown && carousel && activeNode && carousel.contains(activeNode)) {{
-                    e.preventDefault(); e.stopPropagation();
-                    
-                    // Strip gpfocus from wherever Steam had it
-                    if (activeNode.classList) activeNode.classList.remove('gpfocus');
-                    
-                    // Force focus onto our injected DOM node
-                    btn.focus();
-                    btn.classList.add('gpfocus');
-                    onFocus(); // trigger custom visual styles
-                    return;
-                }}
-            }}
-            
-            window.addEventListener('keydown', onWinKeydown, true);
-
-            // Cleanup: remove global listener when button is destroyed
             btn._steamidraCleanup = function() {{
-                window.removeEventListener('keydown', onWinKeydown, true);
                 btn.removeEventListener('mouseenter', onFocus);
                 btn.removeEventListener('mouseleave', onBlur);
             }};
@@ -297,7 +378,7 @@ def _build_js_popup(library_app_ids: set) -> str:
             if (hasNormal || hasBP) {{
                 cleanupEl('steamidra-btn-normal');
                 cleanupEl('steamidra-wrapper-bp');
-                cleanupEl('steamidra-wrapper-bp');
+                cleanupEl('steamidra-react-host-bp');
             }}
             _lastUrl = currentUrl;
             return;
@@ -399,13 +480,17 @@ def inject_popup(tab_id, app_id=None):
 
 def update_steam_ui(tab_id, js_code):
     ws_url = f"ws://localhost:8080/devtools/page/{tab_id}"
-    try:
-        ws = create_connection(ws_url, timeout=5)
-        ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {"expression": js_code}}))
-        ws.recv()
-        ws.close()
-    except Exception as e:
-        logger.error(f"Failed to update UI in tab {tab_id}: {e}")
+    for attempt in range(3):
+        try:
+            ws = create_connection(ws_url, timeout=5)
+            ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {"expression": js_code}}))
+            ws.recv()
+            ws.close()
+            return
+        except Exception as e:
+            if attempt == 2:
+                logger.error(f"Failed to update UI in tab {tab_id}: {e}")
+            time.sleep(0.1)
 
 
 def show_toast(tab_id, message):

@@ -400,12 +400,14 @@ class SFFMainWindow(QMainWindow):
         from sff.core.structs import Settings
         hubcap_key = get_setting(Settings.HUBCAP_KEY)
         if not hubcap_key:
+            err_msg = "Hubcap API Key missing. Please configure it in SteaMidra Settings."
             js = ("var b = document.getElementById('steamidra-btn-normal') || "
                   "document.getElementById('steamidra-wrapper-bp'); "
                   "if(b){ b.innerHTML = 'Add to SteaMidra Library'; b.disabled = false; "
-                  "b.style.opacity = '1'; b.style.cursor = 'pointer'; }")
+                  "b.style.opacity = '1'; b.style.cursor = 'pointer'; }"
+                  f"if(typeof window.STEAMIDRA_REACT_ERROR === 'function') window.STEAMIDRA_REACT_ERROR({json.dumps(err_msg)});")
             update_steam_ui(tab_id, js)
-            show_toast(tab_id, "Error: Hubcap API Key missing. Please configure it in SteaMidra Settings.")
+            show_toast(tab_id, f"Error: {err_msg}")
             return
 
         def _update_btn(msg):
@@ -416,12 +418,16 @@ class SFFMainWindow(QMainWindow):
                   f"}});")
             update_steam_ui(tab_id, js)
 
-        def _reset_btn():
+        def _reset_btn(err_msg=None):
             js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
                   f"  var b = document.getElementById(id); "
                   f"  if(b){{ b.innerHTML = 'Add to SteaMidra Library'; b.disabled = false; "
                   f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; }}"
                   f"}});")
+            if err_msg:
+                import json as _json
+                safe_msg = _json.dumps(err_msg)
+                js += f" if(typeof window.STEAMIDRA_REACT_ERROR === 'function') window.STEAMIDRA_REACT_ERROR({safe_msg});"
             update_steam_ui(tab_id, js)
 
         _update_btn("Adding...")
@@ -468,16 +474,22 @@ class SFFMainWindow(QMainWindow):
                     pass
                     
                 if data.get("success"):
+                    try:
+                        self._web_bridge._installed_games_cache = None
+                    except Exception:
+                        pass
                     _switch_btn_to_remove()
                     label = game_name or f"App {app_id}"
                     show_toast(tab_id, f"'{label}' added to SteaMidra Library!")
                 else:
-                    _reset_btn()
+                    msg = ""
                     if data.get("source_empty"):
-                        show_toast(tab_id, f"App ID {app_id} not found on Hubcap.")
+                        msg = f"App ID {app_id} not found on Hubcap."
                     else:
                         msg = data.get("message") or "Unknown error"
-                        show_toast(tab_id, f"Error: {msg}")
+                    
+                    _reset_btn(msg)
+                    show_toast(tab_id, f"Error: {msg}")
             except Exception:
                 pass
 
