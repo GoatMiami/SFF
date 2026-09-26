@@ -218,6 +218,7 @@ def _kick_dotnet_check():
 _kick_dotnet_check()
 
 
+
 def get_steam_path_gui():
     path_str = get_setting(Settings.STEAM_PATH)
     if path_str:
@@ -418,6 +419,13 @@ def main():
     if not _app_icon.isNull():
         window.setWindowIcon(_app_icon)
     window.show()
+
+    try:
+        from sff import steam_injector
+        steam_injector.start_injector(window)
+        logger.info("Started native Steam CDP injector thread with UI bridge")
+    except Exception as e:
+        logger.error(f"Failed to start Steam CDP injector: {e}")
 
     if _pending_file:
         try:

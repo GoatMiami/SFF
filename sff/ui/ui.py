@@ -1019,7 +1019,7 @@ class UI:
                 pass
         provider = self._steam_provider()
         downloader = ManifestDownloader(provider, self.steam_path)
-        downloader.use_hubcap = False
+        downloader.use_hubcap = use_hubcap
         if use_hubcap:
             _maybe_prompt_manifest_pins(parsed_lua)
         config = ConfigVDFWriter(self.steam_path)

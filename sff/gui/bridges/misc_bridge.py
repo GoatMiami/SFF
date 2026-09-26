@@ -2559,7 +2559,7 @@ def _bridge__scan_installed_games(bridge):
                         game_path = steamapps / "common" / installdir
                         if not game_path.exists():
                             skipped_missing_dir += 1
-                            continue
+                            name = f"{name} (Not Downloaded)"
                     seen.add(app_id)
                     managed = managed_sources.get(app_id) or []
                     games.append({
@@ -2575,6 +2575,54 @@ def _bridge__scan_installed_games(bridge):
                     continue
         except OSError:
             continue
+
+    try:
+        from sff.core.utils import root_folder
+        all_games_file = root_folder(outside_internal=True) / "all_games.txt"
+        name_map = {}
+        if all_games_file.exists():
+            import re
+            _id_re = re.compile(r"^(.*?)\s*\[ID=(\d+)\]$")
+            try:
+                for line in all_games_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    m = _id_re.search(line.strip())
+                    if m:
+                        n = m.group(1).strip()
+                        aid = m.group(2)
+                        name_map[aid] = n
+            except Exception:
+                pass
+                
+        lua_dirs = []
+        saved_lua_dir = Path.cwd() / "saved_lua"
+        if saved_lua_dir.exists():
+            lua_dirs.append(saved_lua_dir)
+        if bridge._steam_path:
+            stplug_in = bridge._steam_path / "config" / "stplug-in"
+            if stplug_in.exists():
+                lua_dirs.append(stplug_in)
+                
+        for ldir in lua_dirs:
+            for lua_file in ldir.glob("*.lua"):
+                app_id = lua_file.stem
+                if app_id in seen or not app_id.isdigit():
+                    continue
+                name = name_map.get(app_id)
+                if not name:
+                    name = f"App {app_id}"
+                name = name.replace('\ufffd', '').replace('', '') # Remove UTF-8 replacement chars
+                games.append({
+                    "app_id": int(app_id),
+                    "name": name,
+                    "installed": False,
+                    "path": "",
+                    "steamidra_managed": True,
+                    "steamidra_source": "saved_lua" if ldir.name == "saved_lua" else "stplug-in",
+                })
+                seen.add(app_id) # Prevent duplicates between saved_lua and stplug-in
+    except Exception as e:
+        logger.debug("_scan_installed_games: uninstalled lua scan failed: %s", e)
+
     games.sort(key=lambda g: g.get("name", "").lower())
     if skipped_missing_dir:
         logger.info(
@@ -2747,6 +2795,22 @@ def _bridge_delete_game(bridge, app_id, game_path, mode):
                     pass
 
         if mode != "full":
+            # Also remove the ACF so the game doesn't re-appear in the library
+            # on the next refresh. When Steam has an appmanifest_ for this game,
+            # the ACF scanner re-adds it even though the Lua is gone.
+            # We only do this when the Lua was ours (lua_removed=True), so we
+            # never touch ACFs for games the user legitimately bought on Steam.
+            if lua_removed and bridge._steam_path:
+                try:
+                    from sff.core.storage.vdf import get_steam_libs
+                    for lib in get_steam_libs(bridge._steam_path):
+                        acf = lib / "steamapps" / f"appmanifest_{app_id_int}.acf"
+                        if acf.exists():
+                            acf.unlink()
+                            logger.info("delete_game (applist): also removed ACF %s", acf)
+                            break
+                except Exception as e:
+                    logger.warning("delete_game (applist): ACF removal failed: %s", e)
             if lua_removed:
                 return (True, "Removed from library. If the game still shows in Steam, restart Steam (or run Auto LC Setup if you haven't yet).")
             return (True, "Removed from library")

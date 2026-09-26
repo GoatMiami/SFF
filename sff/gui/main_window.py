@@ -20,7 +20,7 @@ import re
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, QEasingCurve, QEvent, QObject, QPropertyAnimation, QThread, QTimer, QUrl, Qt, pyqtSignal
+from PyQt6.QtCore import QByteArray, QEasingCurve, QEvent, QObject, QPropertyAnimation, QThread, QTimer, QUrl, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QPixmap, QTextCursor
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtWebEngineCore import QWebEngineSettings
@@ -375,6 +375,249 @@ class SFFMainWindow(QMainWindow):
         # build without knowing why. Cleanup the log after surfacing so
         # subsequent launches don't re-warn.
         QTimer.singleShot(2 * 1000, self._surface_stale_updater_log)
+
+    @pyqtSlot(str, str, str)
+    def run_injector_add(self, app_id: str, tab_id: str, game_name: str = ""):
+        """Called by the steam_injector thread via QMetaObject.invokeMethod when
+        the user clicks 'Add to SteaMidra Library' in Steam.
+
+        Delegates to the exact same pipeline that the SteaMidra Web UI Store
+        page uses: self._web_bridge.download_game_with_source(app_id, 'hubcap').
+        No monkey-patching, no custom threads -- the bridge's own _run_async +
+        _emit_task_result machinery handles everything.
+        """
+        logger.info("run_injector_add: app_id=%s game_name=%r tab_id=%s", app_id, game_name, tab_id)
+        from sff.steam_injector import update_steam_ui, show_toast
+
+        if not app_id or not str(app_id).strip().isdigit():
+            show_toast(tab_id, f"Error: Invalid App ID '{app_id}'")
+            return
+
+        app_id = str(app_id).strip()
+
+        # Guard: check for Hubcap key before doing any network work.
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        hubcap_key = get_setting(Settings.HUBCAP_KEY)
+        if not hubcap_key:
+            js = ("var b = document.getElementById('steamidra-btn-normal') || "
+                  "document.getElementById('steamidra-wrapper-bp'); "
+                  "if(b){ b.innerHTML = 'Add to SteaMidra Library'; b.disabled = false; "
+                  "b.style.opacity = '1'; b.style.cursor = 'pointer'; }")
+            update_steam_ui(tab_id, js)
+            show_toast(tab_id, "Error: Hubcap API Key missing. Please configure it in SteaMidra Settings.")
+            return
+
+        def _update_btn(msg):
+            safe = msg.replace("'", "\\'")
+            js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                  f"  var b = document.getElementById(id); "
+                  f"  if(b){{ b.innerHTML = '<span class=\"steamidra-spinner\"></span><span>{safe}</span>'; }}"
+                  f"}});")
+            update_steam_ui(tab_id, js)
+
+        def _reset_btn():
+            js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                  f"  var b = document.getElementById(id); "
+                  f"  if(b){{ b.innerHTML = 'Add to SteaMidra Library'; b.disabled = false; "
+                  f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; }}"
+                  f"}});")
+            update_steam_ui(tab_id, js)
+
+        _update_btn("Adding...")
+
+        # Forward download progress events to the Steam button text so the
+        # user can see "Downloading Lua", "Writing keys", etc. in real time.
+        def _on_progress(payload_str):
+            try:
+                import json as _json
+                data = _json.loads(payload_str)
+                if str(data.get("app_id", "")) != app_id:
+                    return
+                status = data.get("status", "")
+                if status and status not in ("Complete", "Starting"):
+                    _update_btn(status[:40])
+            except Exception:
+                pass
+
+        def _switch_btn_to_remove():
+            js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                  f"  var b = document.getElementById(id); "
+                  f"  if(b){{ b.innerHTML = 'Remove from Library'; b.disabled = false; "
+                  f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; "
+                  f"  b.style.background = 'linear-gradient(135deg,#ff4d4d,#cc0000)'; }}"
+                  f"}}); "
+                  f"if(typeof window.STEAMIDRA_LIBRARY !== 'undefined') window.STEAMIDRA_LIBRARY['{app_id}'] = 1;")
+            update_steam_ui(tab_id, js)
+
+        # When the download finishes (or fails) show a Steam toast and reset the button.
+        def _on_task_finished(payload_str):
+            try:
+                import json as _json
+                data = _json.loads(payload_str)
+                if str(data.get("app_id", "")) != app_id:
+                    return
+                if data.get("task") not in ("download_fastest",):
+                    return
+                
+                # Disconnect these one-shot handlers to avoid double-firing.
+                try:
+                    self._web_bridge.download_progress.disconnect(_on_progress)
+                    self._web_bridge.task_finished.disconnect(_on_task_finished)
+                except Exception:
+                    pass
+                    
+                if data.get("success"):
+                    _switch_btn_to_remove()
+                    label = game_name or f"App {app_id}"
+                    show_toast(tab_id, f"'{label}' added to SteaMidra Library!")
+                else:
+                    _reset_btn()
+                    if data.get("source_empty"):
+                        show_toast(tab_id, f"App ID {app_id} not found on Hubcap.")
+                    else:
+                        msg = data.get("message") or "Unknown error"
+                        show_toast(tab_id, f"Error: {msg}")
+            except Exception:
+                pass
+
+        self._web_bridge.download_progress.connect(_on_progress)
+        self._web_bridge.task_finished.connect(_on_task_finished)
+
+        # Delegate to the exact same method the Web UI calls when you press
+        # Download → Hubcap in the Store page.  No hacks, same code path.
+        self._web_bridge.download_game_with_source(app_id, "hubcap")
+
+    @pyqtSlot(str, str)
+    def run_injector_remove(self, app_id: str, tab_id: str):
+        """Called by the steam_injector thread via QMetaObject.invokeMethod when
+        the user clicks 'Remove from Library' on a Steam store page that is already
+        in the SteaMidra library.
+
+        Uses the exact same logic as clicking the ✕ button → 'Remove from library'
+        in the SteaMidra Library page — calls _bridge_delete_game(bridge, app_id,
+        game_path, 'applist') directly on a daemon thread, then updates the Steam
+        button and shows a toast once the operation finishes.
+        """
+        logger.info("run_injector_remove: app_id=%s tab_id=%s", app_id, tab_id)
+        from sff.steam_injector import update_steam_ui, show_toast
+
+        if not app_id or not str(app_id).strip().isdigit():
+            show_toast(tab_id, f"Error: Invalid App ID '{app_id}'")
+            return
+
+        app_id = str(app_id).strip()
+
+        def _do_remove():
+            # Step 1: look up the game's ACF install path (same as the library page)
+            game_path = ""
+            try:
+                from sff.core.storage.vdf import get_steam_libs
+                for lib in get_steam_libs(self.steam_path):
+                    acf = lib / "steamapps" / f"appmanifest_{app_id}.acf"
+                    if acf.exists():
+                        text = acf.read_text(encoding="utf-8", errors="replace")
+                        for line in text.splitlines():
+                            s = line.strip()
+                            if '"installdir"' in s:
+                                installdir = s.split('"')[-2] if '"' in s else ""
+                                if installdir:
+                                    candidate = lib / "steamapps" / "common" / installdir
+                                    game_path = str(candidate) if candidate.exists() else ""
+                                break
+                        break
+            except Exception as e:
+                logger.debug("run_injector_remove: ACF lookup failed: %s", e)
+
+            # Step 2: run the exact same logic as _bridge_delete_game with mode='applist'
+            try:
+                from sff.gui.bridges.misc_bridge import _bridge_delete_game
+                # _bridge_delete_game uses bridge._run_async internally, so we call
+                # the underlying private impl directly to stay on our own thread.
+                # The private impl is the _do() closure inside _bridge_delete_game.
+                # Instead of re-extracting that, just call delete_game on the bridge
+                # (it's safe to call from any thread as a plain Python method) and
+                # let it schedule its own QThread. We then poll the installed_games
+                # cache clearing as our "done" signal.
+                # --- Actually the simplest correct approach: replicate the core
+                # remove steps directly (same as _bridge_delete_game 'applist' path).
+                import shutil as _shutil
+                from pathlib import Path as _Path
+
+                app_id_int = int(app_id)
+                lua_removed = False
+
+                if self.steam_path:
+                    try:
+                        from sff.steam_tools_compat import remove_lua_from_steam
+                        remove_lua_from_steam(_Path(self.steam_path), app_id_int)
+                        lua_removed = True
+                        logger.info("run_injector_remove: stplug-in Lua removed for %s", app_id)
+                    except Exception as e:
+                        logger.warning("run_injector_remove: Lua removal failed: %s", e)
+
+                    # Remove saved_lua cache too (same as delete_game 'applist')
+                    try:
+                        saved_path = _Path.cwd() / "saved_lua" / f"{app_id_int}.lua"
+                        if saved_path.exists():
+                            saved_path.unlink()
+                            logger.info("run_injector_remove: removed saved_lua/%s.lua", app_id_int)
+                    except Exception:
+                        pass
+
+                    # Remove the ACF so it doesn't reappear on next scan
+                    if lua_removed:
+                        try:
+                            from sff.core.storage.vdf import get_steam_libs as _gsl
+                            for lib in _gsl(self.steam_path):
+                                acf = lib / "steamapps" / f"appmanifest_{app_id_int}.acf"
+                                if acf.exists():
+                                    acf.unlink()
+                                    logger.info("run_injector_remove: removed ACF %s", acf)
+                                    break
+                        except Exception as e:
+                            logger.warning("run_injector_remove: ACF removal failed: %s", e)
+
+                # Invalidate the installed games cache so the library page refreshes
+                try:
+                    self._web_bridge._installed_games_cache = None
+                    self._web_bridge._emit_task_result("delete_game", True, "Removed from library", app_id=app_id)
+                except Exception:
+                    pass
+
+                # Step 3: update the Steam button and show result toast
+                if lua_removed:
+                    js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                          f"  var b = document.getElementById(id); "
+                          f"  if(b){{ b.innerHTML = 'Add to Library'; b.disabled = false; "
+                          f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; "
+                          f"  b.style.background = 'linear-gradient(135deg,#1a9fff,#0074cc)'; }}"
+                          f"}}); "
+                          f"if(typeof window.STEAMIDRA_LIBRARY !== 'undefined') delete window.STEAMIDRA_LIBRARY['{app_id}'];")
+                    update_steam_ui(tab_id, js)
+                    show_toast(tab_id, f"App {app_id} removed from SteaMidra Library.")
+                else:
+                    js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                          f"  var b = document.getElementById(id); "
+                          f"  if(b){{ b.innerHTML = 'Remove from Library'; b.disabled = false; "
+                          f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; }}"
+                          f"}});")
+                    update_steam_ui(tab_id, js)
+                    show_toast(tab_id, f"Error: Could not remove App {app_id} — check debug.log.")
+
+            except Exception as e:
+                logger.exception("run_injector_remove: unexpected error: %s", e)
+                js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                      f"  var b = document.getElementById(id); "
+                      f"  if(b){{ b.innerHTML = 'Remove from Library'; b.disabled = false; "
+                      f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; }}"
+                      f"}});")
+                update_steam_ui(tab_id, js)
+                show_toast(tab_id, f"Error removing App {app_id}: {e}")
+
+        import threading as _threading
+        _threading.Thread(target=_do_remove, name=f"sff-injector-remove-{app_id}", daemon=True).start()
+
 
     def _build_classic_ui(self, steam_path):
         if getattr(self, '_classic_ui_built', False):

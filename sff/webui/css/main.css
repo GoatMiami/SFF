@@ -496,6 +496,12 @@ a:hover { text-decoration: underline; }
     background: var(--btn-hover);
 }
 
+.btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
 .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;

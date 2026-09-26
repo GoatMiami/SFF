@@ -10,6 +10,7 @@ window.Library = (function() {
     var _pendingDelete = null; // { appId, gamePath }
     var _libraryGames = [];
     var _managedOnly = false;
+    var _allLuasOnly = false;
     var _renderToken = 0;
     var _renderChunkSize = 48;
 
@@ -30,10 +31,28 @@ window.Library = (function() {
         }
 
         var managedBtn = document.getElementById('library-filter-managed');
+        var allLuasBtn = document.getElementById('library-filter-all');
+        
         if (managedBtn) {
             managedBtn.addEventListener('click', function() {
                 _managedOnly = !_managedOnly;
                 managedBtn.classList.toggle('active', _managedOnly);
+                if (_managedOnly && allLuasBtn) {
+                    _allLuasOnly = false;
+                    allLuasBtn.classList.remove('active');
+                }
+                _applyLibraryFilter(searchInp ? searchInp.value.trim().toLowerCase() : '');
+            });
+        }
+        
+        if (allLuasBtn) {
+            allLuasBtn.addEventListener('click', function() {
+                _allLuasOnly = !_allLuasOnly;
+                allLuasBtn.classList.toggle('active', _allLuasOnly);
+                if (_allLuasOnly && managedBtn) {
+                    _managedOnly = false;
+                    managedBtn.classList.remove('active');
+                }
                 _applyLibraryFilter(searchInp ? searchInp.value.trim().toLowerCase() : '');
             });
         }
@@ -256,7 +275,12 @@ window.Library = (function() {
             });
         }
         if (_managedOnly) {
-            games = games.filter(function(g) { return !!g.steamidra_managed; });
+            games = games.filter(function(g) { return !!g.steamidra_managed && g.installed !== false; });
+        } else if (_allLuasOnly) {
+            games = games.filter(function(g) { return !!g.steamidra_managed || g.steamidra_source === 'saved_lua' || g.steamidra_source === 'stplug-in'; });
+        } else {
+            // Default view: only show games that are installed (or currently downloading)
+            games = games.filter(function(g) { return g.installed !== false; });
         }
 
         if (grid) grid.innerHTML = '';
@@ -291,7 +315,6 @@ window.Library = (function() {
     }
 
     function _createLibraryCard(game, index) {
-        game.installed = true;
         var card = Components.createGameCard(game, { index: index, forceShowImage: true });
         var safeName = (game.name || '').replace(/"/g, '&quot;');
         var safePath = (game.path || '').replace(/"/g, '&quot;');

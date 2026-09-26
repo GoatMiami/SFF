@@ -112,7 +112,8 @@ class GameHandler:
                             seen_app_ids.add(app_id)
                             game_path = steamapps / "common" / installdir
                             if not game_path.exists():
-                                continue
+                                name = f"{name} (Not Downloaded)"
+                            
                             games.append(
                                 (name, ACFInfo(app_id, game_path))
                             )
