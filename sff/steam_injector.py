@@ -562,9 +562,10 @@ def injection_loop(ui_ref):
 
         app_id = get_app_id_from_url(url)
         clean_url = url.split('#')[0]
-        if app_id and last_injected.get(tab_id) != clean_url:
+        if last_injected.get(tab_id) != clean_url:
             set_last(tab_id, clean_url)
-            threading.Thread(target=inject_popup, args=(tab_id, app_id), daemon=True).start()
+            if app_id:
+                threading.Thread(target=inject_popup, args=(tab_id, app_id), daemon=True).start()
 
     # Step 1: inject into any already-open store tabs immediately
     try:
