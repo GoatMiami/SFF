@@ -401,8 +401,7 @@ class SFFMainWindow(QMainWindow):
         hubcap_key = get_setting(Settings.HUBCAP_KEY)
         if not hubcap_key:
             err_msg = "Hubcap API Key missing. Please configure it in SteaMidra Settings."
-            js = ("var b = document.getElementById('steamidra-btn-normal') || "
-                  "document.getElementById('steamidra-wrapper-bp'); "
+            js = ("var b = document.getElementById('steamidra-btn-normal'); "
                   "if(b){ b.innerHTML = 'Add to SteaMidra Library'; b.disabled = false; "
                   "b.style.opacity = '1'; b.style.cursor = 'pointer'; }"
                   f"if(typeof window.STEAMIDRA_REACT_ERROR === 'function') window.STEAMIDRA_REACT_ERROR({json.dumps(err_msg)});")
@@ -412,14 +411,14 @@ class SFFMainWindow(QMainWindow):
 
         def _update_btn(msg):
             safe = msg.replace("'", "\\'")
-            js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+            js = (f"['steamidra-btn-normal'].forEach(function(id){{ "
                   f"  var b = document.getElementById(id); "
                   f"  if(b){{ b.innerHTML = '<span class=\"steamidra-spinner\"></span><span>{safe}</span>'; }}"
                   f"}});")
             update_steam_ui(tab_id, js)
 
         def _reset_btn(err_msg=None):
-            js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+            js = (f"['steamidra-btn-normal'].forEach(function(id){{ "
                   f"  var b = document.getElementById(id); "
                   f"  if(b){{ b.innerHTML = 'Add to SteaMidra Library'; b.disabled = false; "
                   f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; }}"
@@ -428,6 +427,8 @@ class SFFMainWindow(QMainWindow):
                 import json as _json
                 safe_msg = _json.dumps(err_msg)
                 js += f" if(typeof window.STEAMIDRA_REACT_ERROR === 'function') window.STEAMIDRA_REACT_ERROR({safe_msg});"
+            else:
+                js += f" if(typeof window.STEAMIDRA_REACT_RESET === 'function') window.STEAMIDRA_REACT_RESET();"
             update_steam_ui(tab_id, js)
 
         _update_btn("Adding...")
@@ -447,13 +448,14 @@ class SFFMainWindow(QMainWindow):
                 pass
 
         def _switch_btn_to_remove():
-            js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+            js = (f"['steamidra-btn-normal'].forEach(function(id){{ "
                   f"  var b = document.getElementById(id); "
                   f"  if(b){{ b.innerHTML = 'Remove from Library'; b.disabled = false; "
                   f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; "
                   f"  b.style.background = 'linear-gradient(135deg,#ff4d4d,#cc0000)'; }}"
                   f"}}); "
-                  f"if(typeof window.STEAMIDRA_LIBRARY !== 'undefined') window.STEAMIDRA_LIBRARY['{app_id}'] = 1;")
+                  f"if(typeof window.STEAMIDRA_LIBRARY !== 'undefined') window.STEAMIDRA_LIBRARY['{app_id}'] = 1; "
+                  f"if(typeof window.STEAMIDRA_REACT_RESET === 'function') window.STEAMIDRA_REACT_RESET();")
             update_steam_ui(tab_id, js)
 
         # When the download finishes (or fails) show a Steam toast and reset the button.
@@ -599,31 +601,34 @@ class SFFMainWindow(QMainWindow):
 
                 # Step 3: update the Steam button and show result toast
                 if lua_removed:
-                    js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                    js = (f"['steamidra-btn-normal'].forEach(function(id){{ "
                           f"  var b = document.getElementById(id); "
                           f"  if(b){{ b.innerHTML = 'Add to Library'; b.disabled = false; "
                           f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; "
                           f"  b.style.background = 'linear-gradient(135deg,#1a9fff,#0074cc)'; }}"
                           f"}}); "
-                          f"if(typeof window.STEAMIDRA_LIBRARY !== 'undefined') delete window.STEAMIDRA_LIBRARY['{app_id}'];")
+                          f"if(typeof window.STEAMIDRA_LIBRARY !== 'undefined') delete window.STEAMIDRA_LIBRARY['{app_id}']; "
+                          f"if(typeof window.STEAMIDRA_REACT_RESET === 'function') window.STEAMIDRA_REACT_RESET();")
                     update_steam_ui(tab_id, js)
                     show_toast(tab_id, f"App {app_id} removed from SteaMidra Library.")
                 else:
-                    js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                    js = (f"['steamidra-btn-normal'].forEach(function(id){{ "
                           f"  var b = document.getElementById(id); "
                           f"  if(b){{ b.innerHTML = 'Remove from Library'; b.disabled = false; "
                           f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; }}"
-                          f"}});")
+                          f"}}); "
+                          f"if(typeof window.STEAMIDRA_REACT_RESET === 'function') window.STEAMIDRA_REACT_RESET();")
                     update_steam_ui(tab_id, js)
                     show_toast(tab_id, f"Error: Could not remove App {app_id} — check debug.log.")
 
             except Exception as e:
                 logger.exception("run_injector_remove: unexpected error: %s", e)
-                js = (f"['steamidra-btn-normal', 'steamidra-wrapper-bp'].forEach(function(id){{ "
+                js = (f"['steamidra-btn-normal'].forEach(function(id){{ "
                       f"  var b = document.getElementById(id); "
                       f"  if(b){{ b.innerHTML = 'Remove from Library'; b.disabled = false; "
                       f"  b.style.opacity = '1'; b.style.cursor = 'pointer'; }}"
-                      f"}});")
+                      f"}}); "
+                      f"if(typeof window.STEAMIDRA_REACT_ERROR === 'function') window.STEAMIDRA_REACT_ERROR({json.dumps(str(e))});")
                 update_steam_ui(tab_id, js)
                 show_toast(tab_id, f"Error removing App {app_id}: {e}")
 
