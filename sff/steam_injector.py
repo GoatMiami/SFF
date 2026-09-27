@@ -177,13 +177,13 @@ def _build_js_popup(library_app_ids: set) -> str:
                             var mod = r(m);
                             if (mod && mod.createElement && mod.Component) SPReact = mod;
                             if (mod && mod.createPortal) SPReactDOM = mod;
-                            if (mod && mod.Focusable && mod.Focusable.displayName === 'Focusable') SPFocusable = mod.Focusable;
+                            if (mod && mod.Focusable) SPFocusable = mod.Focusable;
                         }} catch(e) {{}}
                     }}
                 }}]);
             }}
 
-            if (SPReact && SPReactDOM) {{
+            if (SPReact && SPReactDOM && SPFocusable) {{
                 function captureNavFromElement(el) {{
                     var fiber = null;
                     for (var key in el) {{
@@ -212,9 +212,10 @@ def _build_js_popup(library_app_ids: set) -> str:
                     if (cap && cap.ctx && cap.node) {{
                         var Provider = cap.ctx.Provider || cap.ctx;
 
-                        var host = document.createElement('div');
-                        host.id = 'steamidra-react-host-bp';
-                        host.style.cssText = 'display: inline-block; margin-top: 16px; margin-left: 10px; width: fit-content;';
+                        var portalTarget = document.createElement('div');
+                        portalTarget.id = 'steamidra-react-host-bp';
+                        portalTarget.style.cssText = 'display: inline-block; margin-top: 16px; margin-left: 10px; width: fit-content;';
+                        carousel.appendChild(portalTarget);
 
                         var dummy = document.getElementById('steamidra-wrapper-bp');
                         if (!dummy) {{
@@ -251,9 +252,6 @@ def _build_js_popup(library_app_ids: set) -> str:
                             if (errorMsg) text = 'Error: ' + errorMsg;
 
                             var btnProps = {{
-                                className: 'Panel Focusable',
-                                role: 'button',
-                                tabIndex: 0,
                                 onActivate: function(e) {{
                                     if (isWorking) return;
                                     setIsWorking(true);
@@ -295,8 +293,8 @@ def _build_js_popup(library_app_ids: set) -> str:
                                 btnProps.style.boxShadow = '0 0 0 4px white,0 0 0 6px ' + color;
                                 btnProps.style.transform = 'scale(1.02)';
                             }}
-
-                            var Comp = SPFocusable || 'div';
+                            }}
+                            
                             var children = text;
                             if (isWorking) {{
                                 children = SPReact.createElement(SPReact.Fragment, null,
@@ -305,42 +303,29 @@ def _build_js_popup(library_app_ids: set) -> str:
                                 );
                             }}
 
-                            return SPReact.createElement(Provider, {{ value: cap.node }},
-                                SPReact.createElement(Comp, btnProps, children)
-                            );
+                            return SPReact.createElement(SPFocusable, btnProps, children);
                         }}
 
-                        SPReactDOM.render(SPReact.createElement(SteamidraButton), host);
+                        var detachedRoot = document.createElement('div');
+                        SPReactDOM.render(
+                            SPReact.createElement(Provider, {{ value: cap.node }},
+                                SPReactDOM.createPortal(SPReact.createElement(SteamidraButton), portalTarget)
+                            ),
+                            detachedRoot
+                        );
                         
-                        host._steamidraCleanup = function() {{
-                            SPReactDOM.unmountComponentAtNode(host);
+                        portalTarget._steamidraCleanup = function() {{
+                            SPReactDOM.unmountComponentAtNode(detachedRoot);
                         }};
 
-                        return host;
+                        return portalTarget;
                     }}
                 }}
             }}
 
-            // Fallback if React injection fails
-            btn.setAttribute('tabindex', '0');
-            btn.classList.add('Panel', 'Focusable');
-            function onFocus() {{
-                if (btn.disabled) return;
-                var color = (btn.innerText && btn.innerText.includes('Remove')) ? '#ff4d4d' : '#1a9fff';
-                btn.style.boxShadow = '0 0 0 4px white,0 0 0 6px ' + color;
-                btn.style.transform = 'scale(1.02)';
-            }}
-            function onBlur() {{
-                if (btn.disabled) return;
-                btn.style.boxShadow = 'none';
-                btn.style.transform = 'scale(1)';
-            }}
-            btn.addEventListener('mouseenter', onFocus);
-            btn.addEventListener('mouseleave', onBlur);
-            btn._steamidraCleanup = function() {{
-                btn.removeEventListener('mouseenter', onFocus);
-                btn.removeEventListener('mouseleave', onBlur);
-            }};
+            // If React injection fails or isn't ready yet, return null. 
+            // The setInterval will retry next tick.
+            return null;
         }} else {{
             btn.onmouseover = function() {{ if (!btn.disabled) btn.style.opacity = '0.85'; }};
             btn.onmouseout  = function() {{ if (!btn.disabled) btn.style.opacity = '1'; }};
